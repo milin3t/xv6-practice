@@ -15,53 +15,23 @@ typedef struct thread thread_t, *thread_p;
 typedef struct mutex mutex_t, *mutex_p;
 
 struct thread {
-  int        tid;    /* thread id */
-  int        ptid;  /* parent thread id */
   int        sp;                /* saved stack pointer */
   char stack[STACK_SIZE];       /* the thread's stack */
   int        state;             /* FREE, RUNNING, RUNNABLE, WAIT */
+  int        tid;    /* thread id */
+  int        ptid;  /* parent thread id */
 };
+
 static thread_t all_thread[MAX_THREAD];
 thread_p  current_thread;
 thread_p  next_thread;
 extern void thread_switch(void);
-
-static void 
-thread_schedule(void)
-{
-  thread_p t;
-
-  /* Find another runnable thread. */
-  next_thread = 0;
-  for (t = all_thread; t < all_thread + MAX_THREAD; t++) {
-    if (t->state == RUNNABLE && t != current_thread) {
-      next_thread = t;
-      break;
-    }
-  }
-
-  if (t >= all_thread + MAX_THREAD && current_thread->state == RUNNABLE) {
-    /* The current thread is the only runnable thread; run it. */
-    next_thread = current_thread;
-  }
-
-  if (next_thread == 0) {
-    printf(2, "thread_schedule: no runnable threads\n");
-    exit();
-  }
-
-  if (current_thread != next_thread) {         /* switch threads?  */
-    next_thread->state = RUNNING;
-    current_thread->state = RUNNABLE;
-    thread_switch();
-  } else
-    next_thread = 0;
-}
+static void thread_schedule(void);
+static void mythread(void);
 
 void 
 thread_init(void)
 {
-  uthread_init(thread_schedule);
 
   // main() is thread 0, which will make the first invocation to
   // thread_schedule().  it needs a stack so that the first thread_switch() can
@@ -70,8 +40,9 @@ thread_init(void)
   // a RUNNABLE thread.
   current_thread = &all_thread[0];
   current_thread->state = RUNNING;
-  current_thread->tid=0;
-  current_thread->ptid=0;
+  current_thread->tid = 0;
+  current_thread->ptid = 0;
+  uthread_init((int)thread_schedule);
 }
 
 int 
@@ -89,17 +60,35 @@ thread_create(void (*func)())
   */
   * (int *) (t->sp) = (int)func;           // push return address on stack
   t->sp -= 32;                             // space for registers that thread_switch expects
+
+  t->tid = t - all_thread;
+  t->ptid = current_thread->tid;
+
   t->state = RUNNABLE;
-  
+
   return t->tid;
 }
 
 static void 
 thread_join(int tid)
 {
-  /*
-    returns when the child thread tid has exited.
-  */
+  thread_p t;
+  
+  for (t = all_thread; t < all_thread + MAX_THREAD; t++) {
+    if (t->tid == tid) break;
+  }
+  
+  if (t->state == FREE) {
+    printf(1, "thread_join: no such thread\n");
+    return;
+  }
+
+  while (t->state != FREE) {
+    current_thread->state = WAIT;
+    thread_schedule();
+  }
+  
+  printf(1, "thread_join: thread %d exited\n", tid);
 }
 
 static void 
@@ -119,7 +108,7 @@ mythread(void)
 {
   int i;
   int tid[5];
-
+  //
   printf(1, "my thread running\n");
 
   for (i = 0; i < 5; i++) {
@@ -134,12 +123,49 @@ mythread(void)
   current_thread->state = FREE;
 }
 
+static void 
+thread_schedule(void)
+{
+  thread_p t;
+
+  /* Find another runnable thread. */
+
+  next_thread = 0;
+  for (t = all_thread; t < all_thread + MAX_THREAD; t++) {
+    if (t->state == RUNNABLE && t != current_thread) {
+      next_thread = t;
+      break;
+    }
+  }
+
+  if (t >= all_thread + MAX_THREAD && (current_thread->state == RUNNABLE || current_thread->state == RUNNING )){//여기를 들어와야 되는데 왜 안들어 올까까
+    if(current_thread != &all_thread[0]){/* The current thread is the only runnable thread; run it. */
+      next_thread = current_thread;
+      }
+  }
+
+  if (next_thread == 0) {
+    printf(2, "thread_schedule: no runnable threads\n");
+    uthread_init(0); 
+    exit();
+  }
+
+  if (current_thread != next_thread) {         /* switch threads?  */
+    next_thread->state = RUNNING;
+    if(current_thread !=&all_thread[0] && current_thread->state != FREE) //여기서 free를 runnable로 만들어버려서 계속 돌아가게 됐음
+        current_thread->state = RUNNABLE;
+
+    thread_switch(); //여기 안에서 cur만 바꿔주면 된다.
+  } else
+    next_thread = 0;
+}
+
 int 
 main(int argc, char *argv[]) 
 {
   int tid;
   thread_init();
-  tid=thread_create(mythread);
+  tid = thread_create(mythread);
   thread_join(tid);
   return 0;
 }
