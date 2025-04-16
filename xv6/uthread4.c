@@ -72,17 +72,9 @@ thread_create(void (*func)())
 static void 
 thread_join(int tid)
 {
-  thread_p t;
-  printf(1, "gayjoygo\n");
-  
-  for (t = all_thread; t < all_thread + MAX_THREAD; t++) {
-    if (t->tid == tid) break;
-  }
-  
-  if (t->state == FREE) {
-    printf(1, "thread_join: no such thread\n");
-    return;
-  }
+  thread_p t = &all_thread[tid];
+
+  if (t->state == FREE) return;
 
   while (t->state != FREE) {
     current_thread->state = WAIT;
@@ -97,12 +89,30 @@ child_thread(void)
 {
   int i;
   printf(1, "child thread running\n");
-  for (i = 0; i < 10; i++) {
-    printf(1, "child thread 0x%x\n", (int) current_thread);
+  for (i = 0; i < 100; i++) {
+    printf(1, "[tid : %d] child thread 0x%x\n", current_thread->tid, (int) current_thread);
   }
   printf(1, "child thread: exit\n");
   current_thread->state = FREE;
+
+// wake parent thread here
+for (thread_p t = all_thread; t < all_thread + MAX_THREAD; t++) {
+  if (t->state == WAIT && t->tid == current_thread->ptid) {
+    t->state = RUNNABLE;
+  }
+}
+
+// 스케줄러 호출 전에 체크
+int any_runnable = 0;
+for (thread_p t = all_thread; t < all_thread + MAX_THREAD; t++) {
+  if (t->state == RUNNABLE) {
+    any_runnable = 1;
+    break;
+  }
+}
+if (any_runnable) {
   thread_schedule();
+}
 }
 
 static void 
@@ -126,13 +136,31 @@ mythread(void)
   thread_schedule();
 }
 
-static void 
-thread_schedule(void)
+static void thread_schedule(void)
 {
   thread_p t;
 
-  /* Find another runnable thread. */
+  // 부모 쓰레드 깨우기
+  for (t = all_thread; t < all_thread + MAX_THREAD; t++) {
+    if (t->state == WAIT) {
+      int waiting_tid = -1;
+      // 해당 부모 쓰레드가 기다리는 자식이 아직 살아있는지 확인
+      for (thread_p c = all_thread; c < all_thread + MAX_THREAD; c++) {
+        if (c->ptid == t->tid && c->state != FREE) {
+          waiting_tid = c->tid; // 아직 살아있는 자식 있음
+          break;
+        }
+      }
 
+      // 자식이 전부 종료되었으면 부모를 깨운다
+      if (waiting_tid == -1) {
+        printf(1, "[scheduler] Waking parent tid=%d\n", t->tid);
+        t->state = RUNNABLE;
+      }
+    }
+  }
+
+  // 🔁 기존 스케줄링 로직
   next_thread = 0;
   for (t = all_thread; t < all_thread + MAX_THREAD; t++) {
     if (t->state == RUNNABLE && t != current_thread) {
@@ -141,26 +169,31 @@ thread_schedule(void)
     }
   }
 
-  if (t >= all_thread + MAX_THREAD && (current_thread->state == RUNNABLE || current_thread->state == RUNNING )){//여기를 들어와야 되는데 왜 안들어 올까까
-    if(current_thread != &all_thread[0]){/* The current thread is the only runnable thread; run it. */
+  if (t >= all_thread + MAX_THREAD &&
+      (current_thread->state == RUNNABLE || current_thread->state == RUNNING)) {
+    if (current_thread != &all_thread[0]) {
       next_thread = current_thread;
-      }
+    }
   }
 
   if (next_thread == 0) {
-    uthread_init(0); 
+    uthread_init(0);
     printf(2, "thread_schedule: no runnable threads\n");
     exit();
   }
 
-  if (current_thread != next_thread) {         /* switch threads?  */
+  if (current_thread != next_thread) {
     next_thread->state = RUNNING;
-    if(current_thread !=&all_thread[0] && current_thread->state != FREE && current_thread->state != WAIT) //여기서 free를 runnable로 만들어버려서 계속 돌아가게 됐음
-        current_thread->state = RUNNABLE;
 
-    thread_switch(); //여기 안에서 cur만 바꿔주면 된다.
-  } else
+    if (current_thread != &all_thread[0] &&
+        current_thread->state != FREE &&
+        current_thread->state != WAIT)
+      current_thread->state = RUNNABLE;
+
+    thread_switch();
+  } else {
     next_thread = 0;
+  }
 }
 
 int 
