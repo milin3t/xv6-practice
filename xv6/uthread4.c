@@ -73,6 +73,7 @@ static void
 thread_join(int tid)
 {
   thread_p t;
+  printf(1, "gayjoygo\n");
   
   for (t = all_thread; t < all_thread + MAX_THREAD; t++) {
     if (t->tid == tid) break;
@@ -96,11 +97,12 @@ child_thread(void)
 {
   int i;
   printf(1, "child thread running\n");
-  for (i = 0; i < 100; i++) {
+  for (i = 0; i < 10; i++) {
     printf(1, "child thread 0x%x\n", (int) current_thread);
   }
   printf(1, "child thread: exit\n");
   current_thread->state = FREE;
+  thread_schedule();
 }
 
 static void 
@@ -121,6 +123,7 @@ mythread(void)
   
   printf(1, "my thread: exit\n");
   current_thread->state = FREE;
+  thread_schedule();
 }
 
 static void 
@@ -145,14 +148,14 @@ thread_schedule(void)
   }
 
   if (next_thread == 0) {
-    printf(2, "thread_schedule: no runnable threads\n");
     uthread_init(0); 
+    printf(2, "thread_schedule: no runnable threads\n");
     exit();
   }
 
   if (current_thread != next_thread) {         /* switch threads?  */
     next_thread->state = RUNNING;
-    if(current_thread !=&all_thread[0] && current_thread->state != FREE) //여기서 free를 runnable로 만들어버려서 계속 돌아가게 됐음
+    if(current_thread !=&all_thread[0] && current_thread->state != FREE && current_thread->state != WAIT) //여기서 free를 runnable로 만들어버려서 계속 돌아가게 됐음
         current_thread->state = RUNNABLE;
 
     thread_switch(); //여기 안에서 cur만 바꿔주면 된다.
